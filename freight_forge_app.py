@@ -2,30 +2,138 @@ import streamlit as st
 import random
 import string
 import datetime
+import pandas as pd
+import os
+import json
 
-# In-memory "databases"
-USERS = {}
-PENDING_USERS = {}
-SHIPMENTS = {}
-WAYBILLS = {}
+# Create data directory if it doesn't exist
+os.makedirs("data", exist_ok=True)
 
-# Directly initialize the admin user (always run this)
-USERS['admin'] = {
-    "username": "admin",
-    "business_name": "FreightForge Administration",
-    "contact_person": "System Administrator",
-    "email": "admin@freightforge.com",
-    "mobile": "555-ADMIN",
-    "pan_gst": "ADMIN123456",
-    "approved": "yes",
-    "business_type": "Administration",
-    "address": "FreightForge HQ",
-    "password": "admin",
-    "doc": b"admin_document"
-}
+# File paths for CSV storage
+USERS_CSV = "data/users.csv"
+PENDING_USERS_CSV = "data/pending_users.csv"
+SHIPMENTS_CSV = "data/shipments.csv"
+WAYBILLS_CSV = "data/waybills.csv"
 
-# Add customers to pending users if they don't exist yet
-if 'Customer1' not in PENDING_USERS:
+# Function to load data from CSV or initialize if not exists
+def load_data_from_csv(file_path, default_dict=None, key_column='username'):
+    if default_dict is None:
+        default_dict = {}
+
+    if os.path.exists(file_path):
+        try:
+            df = pd.read_csv(file_path)
+            if df.empty:
+                return default_dict
+
+            # Convert DataFrame to dictionary
+            result_dict = {}
+            for _, row in df.iterrows():
+                # Get the key from the appropriate column
+                if key_column in row:
+                    key = row[key_column]
+                    # For waybills and shipments, use waybill_ref as key
+                    if 'waybill_ref' in row and file_path in [SHIPMENTS_CSV, WAYBILLS_CSV]:
+                        key = row['waybill_ref']
+
+                    # Convert row to dict
+                    row_dict = row.to_dict()
+
+                    # Handle document bytes (stored as string in CSV)
+                    if 'doc' in row_dict:
+                        row_dict['doc'] = row_dict['doc'].encode() if isinstance(row_dict['doc'], str) else b''
+
+                    # Handle tracking data (stored as JSON string in CSV)
+                    if 'tracking' in row_dict and isinstance(row_dict['tracking'], str):
+                        try:
+                            row_dict['tracking'] = json.loads(row_dict['tracking'])
+                        except:
+                            row_dict['tracking'] = []
+
+                    # Handle details data (stored as JSON string in CSV)
+                    if 'details' in row_dict and isinstance(row_dict['details'], str):
+                        try:
+                            row_dict['details'] = json.loads(row_dict['details'])
+                        except:
+                            row_dict['details'] = {}
+
+                    result_dict[key] = row_dict
+            return result_dict
+        except Exception as e:
+            st.error(f"Error loading {file_path}: {e}")
+            return default_dict
+    else:
+        return default_dict
+
+# Function to save data to CSV
+def save_data_to_csv(data_dict, file_path):
+    try:
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+        # Convert dictionary to DataFrame
+        if data_dict:
+            # Create list of dictionaries for DataFrame
+            rows = []
+            for key, value in data_dict.items():
+                row = value.copy()
+
+                # Handle document bytes (convert to string for CSV)
+                if 'doc' in row:
+                    row['doc'] = str(row['doc'])
+
+                # Handle tracking data (convert to JSON string for CSV)
+                if 'tracking' in row and isinstance(row['tracking'], list):
+                    # Convert datetime objects to strings in tracking data
+                    tracking_copy = []
+                    for item in row['tracking']:
+                        item_copy = item.copy()
+                        if 'time' in item_copy and isinstance(item_copy['time'], datetime.datetime):
+                            item_copy['time'] = item_copy['time'].isoformat()
+                        tracking_copy.append(item_copy)
+                    row['tracking'] = json.dumps(tracking_copy)
+
+                # Handle details data (convert to JSON string for CSV)
+                if 'details' in row and isinstance(row['details'], dict):
+                    row['details'] = json.dumps(row['details'])
+
+                # Handle eta (convert datetime to string)
+                if 'eta' in row and isinstance(row['eta'], datetime.datetime):
+                    row['eta'] = row['eta'].isoformat()
+
+                rows.append(row)
+
+            df = pd.DataFrame(rows)
+            df.to_csv(file_path, index=False)
+    except Exception as e:
+        st.error(f"Error saving to {file_path}: {e}")
+
+# Load data from CSV files
+USERS = load_data_from_csv(USERS_CSV)
+PENDING_USERS = load_data_from_csv(PENDING_USERS_CSV)
+SHIPMENTS = load_data_from_csv(SHIPMENTS_CSV, {}, key_column='waybill_ref')
+WAYBILLS = load_data_from_csv(WAYBILLS_CSV, {}, key_column='waybill_ref')
+
+# Initialize default admin if not exists
+if 'admin' not in USERS:
+    USERS['admin'] = {
+        "username": "admin",
+        "business_name": "FreightForge Administration",
+        "contact_person": "System Administrator",
+        "email": "admin@freightforge.com",
+        "mobile": "555-ADMIN",
+        "pan_gst": "ADMIN123456",
+        "approved": "yes",
+        "business_type": "Administration",
+        "address": "FreightForge HQ",
+        "password": "admin",
+        "doc": b"admin_document"
+    }
+    # Save updated users to CSV
+    save_data_to_csv(USERS, USERS_CSV)
+
+# Initialize default customers if not in pending users
+if 'Customer1' not in PENDING_USERS and 'Customer1' not in USERS:
     PENDING_USERS['Customer1'] = {
         "username": "Customer1",
         "business_name": "Grain Traders Inc.",
@@ -39,8 +147,10 @@ if 'Customer1' not in PENDING_USERS:
         "password": "Customer1",
         "doc": b"customer1_document"
     }
+    # Save updated pending users to CSV
+    save_data_to_csv(PENDING_USERS, PENDING_USERS_CSV)
 
-if 'Customer2' not in PENDING_USERS:
+if 'Customer2' not in PENDING_USERS and 'Customer2' not in USERS:
     PENDING_USERS['Customer2'] = {
         "username": "Customer2",
         "business_name": "Logistics Masters Ltd.",
@@ -54,6 +164,106 @@ if 'Customer2' not in PENDING_USERS:
         "password": "Customer2",
         "doc": b"customer2_document"
     }
+    # Save updated pending users to CSV
+    save_data_to_csv(PENDING_USERS, PENDING_USERS_CSV)
+
+# Function to create a default waybill
+def create_default_waybill(username, goods_type, qty, origin, destination, option, charge, days_ago=2):
+    booking_date = datetime.datetime.now() - datetime.timedelta(days=days_ago)
+    eta = booking_date + datetime.timedelta(hours=20)
+
+    # Create a unique reference
+    ref = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
+
+    # Create booking details
+    booking_details = {
+        "username": username,
+        "goods_type": goods_type,
+        "qty": qty,
+        "origin": origin,
+        "destination": destination,
+        "dispatch_date": str(booking_date.date()),
+        "option": option,
+        "charge": charge,
+        "status": "In Transit",
+        "booked_on": str(booking_date)
+    }
+
+    # Create waybill
+    waybill = {
+        "username": booking_details["username"],
+        "waybill_ref": ref,
+        "details": booking_details,
+        "tracking": [
+            {"status": "Booking Confirmed", "time": booking_date},
+            {"status": "In Transit", "time": booking_date + datetime.timedelta(hours=4)},
+            {"status": "Arriving", "time": eta}
+        ],
+        "status": "In Transit",
+        "eta": eta
+    }
+
+    return ref, booking_details, waybill
+
+# Add default shipments and waybills if they don't exist yet
+if len(SHIPMENTS) == 0 and len(WAYBILLS) == 0:
+    # For Customer1 - Create two shipments
+    # Shipment 1 - In Transit
+    ref1, booking1, waybill1 = create_default_waybill(
+        username="Customer1",
+        goods_type="Wheat",
+        qty=450,
+        origin="Quebec, QC",
+        destination="Windsor, ON",
+        option="Train A (Covered Hopper x25, departs 09:00)",
+        charge=4455.0,
+        days_ago=2
+    )
+    SHIPMENTS[ref1] = booking1
+    WAYBILLS[ref1] = waybill1
+
+    # Shipment 2 - Delivered
+    ref2, booking2, waybill2 = create_default_waybill(
+        username="Customer1",
+        goods_type="Corn",
+        qty=300,
+        origin="Montreal, QC",
+        destination="Toronto, ON",
+        option="Train B (Boxcar x22, departs 14:00)",
+        charge=2970.0,
+        days_ago=5
+    )
+    # Mark as delivered
+    booking2["status"] = "Delivered"
+    waybill2["status"] = "Delivered"
+    waybill2["tracking"].append({
+        "status": "Delivered", 
+        "time": datetime.datetime.now() - datetime.timedelta(days=3)
+    })
+    SHIPMENTS[ref2] = booking2
+    WAYBILLS[ref2] = waybill2
+
+    # For Customer2 - Create one shipment
+    ref3, booking3, waybill3 = create_default_waybill(
+        username="Customer2",
+        goods_type="Soybean",
+        qty=550,
+        origin="Ottawa, ON",
+        destination="Hamilton, ON",
+        option="Train C (Bulk Grain Car x30, departs 19:00)",
+        charge=3850.0,
+        days_ago=1
+    )
+    SHIPMENTS[ref3] = booking3
+    WAYBILLS[ref3] = waybill3
+
+    # Save to CSV files
+    save_data_to_csv(SHIPMENTS, SHIPMENTS_CSV)
+    save_data_to_csv(WAYBILLS, WAYBILLS_CSV)
+
+    # Print the waybill references for demo purposes
+    print(f"Created default waybills with references: {ref1}, {ref2}, {ref3}")
+
     
 # Helper functions
 def send_otp(email_or_phone):
@@ -169,6 +379,8 @@ if menu == "Register & Login":
                 if st.session_state['user_otp'] == st.session_state['otp']:
                     st.success("OTP Verified. Registration submitted for admin approval.")
                     PENDING_USERS[st.session_state['pending_reg']['username']] = st.session_state['pending_reg']
+                    # Save to CSV
+                    save_data_to_csv(PENDING_USERS, PENDING_USERS_CSV)
                     del st.session_state['pending_reg']
                     del st.session_state['otp']
                 else:
@@ -214,6 +426,9 @@ if menu == "Register & Login":
                             USERS[uname] = reg
                             # Remove from PENDING_USERS
                             del PENDING_USERS[uname]
+                            # Save changes to CSV files
+                            save_data_to_csv(USERS, USERS_CSV)
+                            save_data_to_csv(PENDING_USERS, PENDING_USERS_CSV)
                             st.success(f"User {uname} approved and can now log in.")
                             # Force a rerun to update the UI
                             st.rerun()
@@ -222,10 +437,11 @@ if menu == "Register & Login":
                         if st.button(f"Reject {uname}", key=f"reject_{uname}"):
                             # Remove from PENDING_USERS
                             del PENDING_USERS[uname]
+                            # Save changes to CSV
+                            save_data_to_csv(PENDING_USERS, PENDING_USERS_CSV)
                             st.warning(f"User {uname} rejected.")
                             # Force a rerun to update the UI
-                            st.rerun()
-                        
+                            st.rerun()                        
                         
 # 3. Freight Inquiry & Booking
 if menu == "Freight Inquiry & Booking":
@@ -234,7 +450,29 @@ if menu == "Freight Inquiry & Booking":
         st.warning("Please log in first.")
     else:
         st.header("🚚 Freight Inquiry and Booking")
-        st.write("Book new wheat shipment from Quebec, QC to Windsor, ON.")
+
+        # Show user's existing shipments
+        st.subheader("Your Recent Shipments")
+        user_shipments = {ref: ship for ref, ship in SHIPMENTS.items() if ship['username'] == user['username']}
+
+        if user_shipments:
+            for ref, shipment in user_shipments.items():
+                waybill = WAYBILLS.get(ref)
+                status = waybill['status'] if waybill else shipment['status']
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.write(f"**{shipment['goods_type']}** ({shipment['qty']} MT)")
+                with col2:
+                    st.write(f"{shipment['origin']} → {shipment['destination']}")
+                with col3:
+                    st.write(f"Status: {status}")
+                with col4:
+                    st.write(f"Waybill: `{ref}`")
+        else:
+            st.info("You have no existing shipments. Book your first shipment below!")
+
+        st.markdown("---")
+        st.write("Book new wheat shipment from Origin City to Destination City")
         with st.form("freight-inquiry"):
             st.write("### Freight Details")
             goods_type = st.selectbox("Goods Type", ["Wheat","Corn","Soybean"])
@@ -302,21 +540,92 @@ if menu == "Freight Inquiry & Booking":
 # 4. Track Shipment
 if menu == "Track Shipment (Waybill)":
     st.header("Track Shipment by Waybill Reference")
+
+    # Display a few sample waybill references to help users
+    if WAYBILLS:
+        sample_refs = list(WAYBILLS.keys())[:3]  # Get up to 3 sample references
+        st.info(f"Sample waybill references for testing: {', '.join(sample_refs)}")
+
     ref = st.text_input("Enter Waybill Reference")
     if st.button("Track Now"):
         waybill = WAYBILLS.get(ref)
         if waybill:
             st.success("Shipment Found!")
-            st.write(f"**Status:** {waybill['status']}")
-            st.write(f"**Origin:** {waybill['details']['origin']}  \n**Destination:** {waybill['details']['destination']}")
-            st.write(f"**Goods:** {waybill['details']['goods_type']} ({waybill['details']['qty']} MT)")
-            st.write(f"**ETA:** {waybill['eta']}")
+            st.write(f"**Status:** {waybill.get('status', 'Unknown')}")
+
+            # Safely access nested details
+            details = waybill.get('details', {})
+            if isinstance(details, str):
+                try:
+                    # Try to parse details if it's a string (JSON)
+                    details = json.loads(details)
+                except:
+                    details = {}
+
+            # Safely display origin and destination
+            origin = details.get('origin', 'Unknown')
+            destination = details.get('destination', 'Unknown')
+            st.write(f"**Origin:** {origin}  \n**Destination:** {destination}")
+
+            # Safely display goods information
+            goods_type = details.get('goods_type', 'Unknown')
+            qty = details.get('qty', 'Unknown')
+            st.write(f"**Goods:** {goods_type} ({qty} MT)")
+
+            # Handle ETA display - convert string to datetime if needed
+            eta = waybill.get('eta', 'Unknown')
+            if isinstance(eta, str):
+                try:
+                    eta = datetime.datetime.fromisoformat(eta)
+                except:
+                    # If parsing fails, just use the string
+                    pass
+            st.write(f"**ETA:** {eta}")
+
             st.write("### Tracking History")
-            for t in waybill['tracking']:
-                st.write(f"- {t['time']} — {t['status']}")
-            if waybill['status'] != "Delivered" and st.button("Simulate Delivery"):
+            tracking = waybill.get('tracking', [])
+            if isinstance(tracking, str):
+                try:
+                    tracking = json.loads(tracking)
+                except:
+                    tracking = []
+
+            if not tracking:
+                st.write("No tracking information available.")
+            else:
+                for t in tracking:
+                    # Handle time display - convert string to datetime if needed
+                    time = t.get('time', 'Unknown')
+                    status = t.get('status', 'Unknown')
+
+                    if isinstance(time, str):
+                        try:
+                            time = datetime.datetime.fromisoformat(time)
+                        except:
+                            # If parsing fails, just use the string
+                            pass
+                    st.write(f"- {time} — {status}")
+
+            # Update shipment status if not delivered
+            if waybill.get('status') != "Delivered" and st.button("Simulate Delivery"):
                 waybill['status'] = "Delivered"
-                waybill['tracking'].append({"status":"Delivered", "time":datetime.datetime.now()})
-                st.success("Delivery status updated!")
+                delivery_time = datetime.datetime.now()
+
+                # Ensure tracking is a list
+                if not isinstance(waybill.get('tracking'), list):
+                    waybill['tracking'] = []
+
+                waybill['tracking'].append({"status": "Delivered", "time": delivery_time})
+
+                # Also update the corresponding shipment
+                if ref in SHIPMENTS:
+                    SHIPMENTS[ref]['status'] = "Delivered"
+
+                # Save changes to CSV files
+                save_data_to_csv(WAYBILLS, WAYBILLS_CSV)
+                save_data_to_csv(SHIPMENTS, SHIPMENTS_CSV)
+
+                st.success("Delivery status updated and saved!")
+                st.balloons()
         else:
             st.error("Waybill not found!")

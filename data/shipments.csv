@@ -1,0 +1,4 @@
+username,goods_type,qty,origin,destination,dispatch_date,option,charge,status,booked_on
+Customer1,Wheat,450,"Quebec, QC","Windsor, ON",2025-07-14,"Train A (Covered Hopper x25, departs 09:00)",4455.0,In Transit,2025-07-14 14:32:09.869220
+Customer1,Corn,300,"Montreal, QC","Toronto, ON",2025-07-11,"Train B (Boxcar x22, departs 14:00)",2970.0,Delivered,2025-07-11 14:32:09.869220
+Customer2,Soybean,550,"Ottawa, ON","Hamilton, ON",2025-07-15,"Train C (Bulk Grain Car x30, departs 19:00)",3850.0,In Transit,2025-07-15 14:32:09.869220

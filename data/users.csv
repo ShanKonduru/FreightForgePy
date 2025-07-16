@@ -1,0 +1,4 @@
+username,business_name,contact_person,email,mobile,pan_gst,approved,business_type,address,password,doc
+admin,FreightForge Administration,System Administrator,admin@freightforge.com,555-ADMIN,ADMIN123456,yes,Administration,FreightForge HQ,admin,"b'b\'b""b\\\'admin_document\\\'""\''"
+Customer2,Logistics Masters Ltd.,Sarah Johnson,sarah@logisticsmasters.com,555-5678,LOGIS123456,yes,Logistics,"456 Transport Avenue, Shipping City",Customer2,"b'b\'b""b\\\'customer2_document\\\'""\''"
+Customer1,Grain Traders Inc.,John Smith,john@graintraders.com,555-1234,GRAIN123456,yes,Agriculture,"123 Farm Road, Rural County",Customer1,"b'b""b\'customer1_document\'""'"
