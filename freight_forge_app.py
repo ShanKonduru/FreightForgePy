@@ -608,51 +608,107 @@ if menu == "Track Shipment (Waybill)":
                                 pass
                         st.write(f"- {time} — {status}")
 
-                # Update shipment status if not delivered
-                if waybill.get('status') != "Delivered" and st.button("Simulate Delivery"):
-                    waybill['status'] = "Delivered"
-                    delivery_time = datetime.datetime.now()
+# 4. Track Shipment
+# 4. Track Shipment
+if menu == "Track Shipment (Waybill)":
+    st.header("Track Shipment by Waybill Reference")
 
-                    # Ensure tracking is a list
-                    if not isinstance(waybill.get('tracking'), list):
-                        waybill['tracking'] = []
+    # Display a few sample waybill references to help users
+    if WAYBILLS:
+        sample_refs = list(WAYBILLS.keys())[:3]  # Get up to 3 sample references
+        st.info(f"Sample waybill references for testing: {', '.join(sample_refs)}")
 
-                    waybill['tracking'].append({"status": "Delivered", "time": delivery_time})
+    ref = st.text_input("Enter Waybill Reference")
+    if st.button("Track Now"):
+        # First, try to find the waybill directly from WAYBILLS dictionary
+        waybill = WAYBILLS.get(ref)
 
-                    # Also update the corresponding shipment in the SHIPMENTS dictionary
-                    # We need to find the shipment by username and other matching details
-                    username = waybill.get('username')
-                    if username:
-                        # Find and update the shipment in the CSV directly
-                        updated_shipments = []
-                        found = False
+        # If not found in WAYBILLS, try to find it using the find_shipment function
+        if not waybill:
+            shipment_info = find_shipment(ref)
+            if shipment_info:
+                st.success("Shipment Found!")
+                st.write(f"**Status:** {shipment_info['status']}")
+                st.write(f"**Origin:** {shipment_info['origin']} → **Destination:** {shipment_info['destination']}")
+                st.write(f"**Goods:** {shipment_info['goods']}")
+                st.write(f"**ETA:** {shipment_info['eta']}")
 
-                        with open(SHIPMENTS_CSV, 'r') as file:
-                            reader = csv.DictReader(file)
-                            for row in reader:
-                                # Check if this is the shipment we want to update
-                                # We need to match on multiple fields since there's no direct waybill reference
-                                if (row.get('username') == username and 
-                                    row.get('waybill_ref') == ref):  # If waybill_ref exists in the row
+                st.warning("Tracking history and delivery simulation not available for this shipment.")
+            else:
+                st.error("Waybill not found!")
+        else:
+            # We found the waybill in WAYBILLS dictionary
+            st.success("Shipment Found!")
 
-                                    row['status'] = "Delivered"
-                                    found = True
+            # Extract details from waybill
+            details = waybill.get('details', {})
+            if isinstance(details, str):
+                try:
+                    details = ast.literal_eval(details)
+                except:
+                    details = {}
 
-                                updated_shipments.append(row)
+            # Display shipment information
+            st.write(f"**Status:** {waybill.get('status', 'Unknown')}")
 
-                        if found:
-                            # Write the updated shipments back to the CSV
-                            with open(SHIPMENTS_CSV, 'w', newline='') as file:
-                                writer = csv.DictWriter(file, fieldnames=reader.fieldnames)
-                                writer.writeheader()
-                                writer.writerows(updated_shipments)
-                        else:
-                            st.warning("Could not find matching shipment record to update.")
+            origin = details.get('origin', 'Unknown')
+            destination = details.get('destination', 'Unknown')
+            st.write(f"**Origin:** {origin} → **Destination:** {destination}")
 
-                    # Save changes to waybills CSV
-                    save_data_to_csv(WAYBILLS, WAYBILLS_CSV)
+            goods_type = details.get('goods_type', 'Unknown')
+            qty = details.get('qty', 'Unknown')
+            st.write(f"**Goods:** {goods_type} ({qty} MT)")
 
-                    st.success("Delivery status updated and saved!")
-                    st.balloons()
+            eta = waybill.get('eta', 'Unknown')
+            st.write(f"**ETA:** {eta}")
+
+            # Display tracking history
+            st.write("### Tracking History")
+            tracking = waybill.get('tracking', [])
+            if isinstance(tracking, str):
+                try:
+                    tracking = json.loads(tracking)
+                except:
+                    tracking = []
+
+            if not tracking:
+                st.write("No tracking information available.")
+            else:
+                for t in tracking:
+                    time = t.get('time', 'Unknown')
+                    status = t.get('status', 'Unknown')
+
+                    if isinstance(time, str):
+                        try:
+                            time = datetime.datetime.fromisoformat(time)
+                        except:
+                            pass
+                    st.write(f"- {time} — {status}")
+
+            # Simulate delivery button
+            if waybill.get('status') != "Delivered" and st.button("Simulate Delivery"):
+                waybill['status'] = "Delivered"
+                delivery_time = datetime.datetime.now()
+
+                # Ensure tracking is a list
+                if not isinstance(waybill.get('tracking'), list):
+                    waybill['tracking'] = []
+
+                waybill['tracking'].append({"status": "Delivered", "time": delivery_time})
+
+                # Update the corresponding shipment in SHIPMENTS if possible
+                username = waybill.get('username')
+                if username and ref in SHIPMENTS:
+                    SHIPMENTS[ref]['status'] = "Delivered"
+
+                # Save changes to CSV files
+                save_data_to_csv(WAYBILLS, WAYBILLS_CSV)
+                save_data_to_csv(SHIPMENTS, SHIPMENTS_CSV)
+
+                st.success("Delivery status updated and saved!")
+                st.balloons()
+
+                # Force refresh to show updated status
+                st.rerun()
     else:
             st.error("Waybill not found!")
