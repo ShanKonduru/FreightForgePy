@@ -17,6 +17,7 @@ USERS['admin'] = {
     "email": "admin@freightforge.com",
     "mobile": "555-ADMIN",
     "pan_gst": "ADMIN123456",
+    "approved": "yes",
     "business_type": "Administration",
     "address": "FreightForge HQ",
     "password": "admin",
@@ -32,6 +33,7 @@ if 'Customer1' not in PENDING_USERS:
         "email": "john@graintraders.com",
         "mobile": "555-1234",
         "pan_gst": "GRAIN123456",
+        "approved": "no",
         "business_type": "Agriculture",
         "address": "123 Farm Road, Rural County",
         "password": "Customer1",
@@ -46,6 +48,7 @@ if 'Customer2' not in PENDING_USERS:
         "email": "sarah@logisticsmasters.com",
         "mobile": "555-5678",
         "pan_gst": "LOGIS123456",
+        "approved": "no",
         "business_type": "Logistics",
         "address": "456 Transport Avenue, Shipping City",
         "password": "Customer2",
@@ -81,7 +84,7 @@ def check_user(username, password):
     st.write(f"Available users: {list(USERS.keys())}")
 
     u = USERS.get(username)
-    if u and u['password'] == password:
+    if u and u['password'] == password and u.get('approved') == "yes":
         return u
     return None
 
@@ -200,18 +203,20 @@ if menu == "Register & Login":
 
                 for uname in pending_usernames:
                     reg = PENDING_USERS[uname]
-                    st.write(f"**{uname}** | {reg['business_name']} | {reg['email']}")
+                    st.write(f"**{uname}** | {reg['business_name']} | {reg['email']} | Approval Status: {reg['approved']}")
                     col1, col2 = st.columns(2)
 
                     with col1:
                         if st.button(f"Approve {uname}", key=f"approve_{uname}"):
+                            # Set approved status to "yes"
+                            reg["approved"] = "yes"
                             # Add to USERS dictionary
                             USERS[uname] = reg
                             # Remove from PENDING_USERS
                             del PENDING_USERS[uname]
                             st.success(f"User {uname} approved and can now log in.")
                             # Force a rerun to update the UI
-                            st.experimental_rerun()
+                            st.rerun()
 
                     with col2:
                         if st.button(f"Reject {uname}", key=f"reject_{uname}"):
@@ -219,7 +224,8 @@ if menu == "Register & Login":
                             del PENDING_USERS[uname]
                             st.warning(f"User {uname} rejected.")
                             # Force a rerun to update the UI
-                            st.experimental_rerun()
+                            st.rerun()
+                        
                         
 # 3. Freight Inquiry & Booking
 if menu == "Freight Inquiry & Booking":
