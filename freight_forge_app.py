@@ -4,62 +4,31 @@ import string
 import datetime
 import pandas as pd
 import os
-import json
-import ast
-import csv
-
-# Create data directory if it doesn't exist
-os.makedirs("data", exist_ok=True)
 
 # File paths for CSV storage
-USERS_CSV = "data/users.csv"
-PENDING_USERS_CSV = "data/pending_users.csv"
-SHIPMENTS_CSV = "data/shipments.csv"
-WAYBILLS_CSV = "data/waybills.csv"
+USERS_CSV = "data\\users.csv"
+PENDING_USERS_CSV = "data\\pending_users.csv"
+SHIPMENTS_CSV = "data\\shipments.csv"
+WAYBILLS_CSV = "data\\waybills.csv"
 
 # Function to load data from CSV or initialize if not exists
-def load_data_from_csv(file_path, default_dict=None, key_column='username'):
+def load_data_from_csv(file_path, default_dict=None):
     if default_dict is None:
         default_dict = {}
 
     if os.path.exists(file_path):
         try:
             df = pd.read_csv(file_path)
-            if df.empty:
-                return default_dict
-
             # Convert DataFrame to dictionary
             result_dict = {}
             for _, row in df.iterrows():
-                # Get the key from the appropriate column
-                if key_column in row:
-                    key = row[key_column]
-                    # For waybills and shipments, use waybill_ref as key
-                    if 'waybill_ref' in row and file_path in [SHIPMENTS_CSV, WAYBILLS_CSV]:
-                        key = row['waybill_ref']
-
-                    # Convert row to dict
-                    row_dict = row.to_dict()
-
-                    # Handle document bytes (stored as string in CSV)
-                    if 'doc' in row_dict:
-                        row_dict['doc'] = row_dict['doc'].encode() if isinstance(row_dict['doc'], str) else b''
-
-                    # Handle tracking data (stored as JSON string in CSV)
-                    if 'tracking' in row_dict and isinstance(row_dict['tracking'], str):
-                        try:
-                            row_dict['tracking'] = json.loads(row_dict['tracking'])
-                        except:
-                            row_dict['tracking'] = []
-
-                    # Handle details data (stored as JSON string in CSV)
-                    if 'details' in row_dict and isinstance(row_dict['details'], str):
-                        try:
-                            row_dict['details'] = json.loads(row_dict['details'])
-                        except:
-                            row_dict['details'] = {}
-
-                    result_dict[key] = row_dict
+                key = row['username']  # Assuming 'username' is the key
+                # Convert row to dict and remove the key column
+                row_dict = row.to_dict()
+                # Handle document bytes (stored as string in CSV)
+                if 'doc' in row_dict:
+                    row_dict['doc'] = row_dict['doc'].encode() if isinstance(row_dict['doc'], str) else b''
+                result_dict[key] = row_dict
             return result_dict
         except Exception as e:
             st.error(f"Error loading {file_path}: {e}")
@@ -70,39 +39,15 @@ def load_data_from_csv(file_path, default_dict=None, key_column='username'):
 # Function to save data to CSV
 def save_data_to_csv(data_dict, file_path):
     try:
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
         # Convert dictionary to DataFrame
         if data_dict:
             # Create list of dictionaries for DataFrame
             rows = []
             for key, value in data_dict.items():
                 row = value.copy()
-
                 # Handle document bytes (convert to string for CSV)
                 if 'doc' in row:
                     row['doc'] = str(row['doc'])
-
-                # Handle tracking data (convert to JSON string for CSV)
-                if 'tracking' in row and isinstance(row['tracking'], list):
-                    # Convert datetime objects to strings in tracking data
-                    tracking_copy = []
-                    for item in row['tracking']:
-                        item_copy = item.copy()
-                        if 'time' in item_copy and isinstance(item_copy['time'], datetime.datetime):
-                            item_copy['time'] = item_copy['time'].isoformat()
-                        tracking_copy.append(item_copy)
-                    row['tracking'] = json.dumps(tracking_copy)
-
-                # Handle details data (convert to JSON string for CSV)
-                if 'details' in row and isinstance(row['details'], dict):
-                    row['details'] = json.dumps(row['details'])
-
-                # Handle eta (convert datetime to string)
-                if 'eta' in row and isinstance(row['eta'], datetime.datetime):
-                    row['eta'] = row['eta'].isoformat()
-
                 rows.append(row)
 
             df = pd.DataFrame(rows)
@@ -113,8 +58,8 @@ def save_data_to_csv(data_dict, file_path):
 # Load data from CSV files
 USERS = load_data_from_csv(USERS_CSV)
 PENDING_USERS = load_data_from_csv(PENDING_USERS_CSV)
-SHIPMENTS = load_data_from_csv(SHIPMENTS_CSV, {}, key_column='waybill_ref')
-WAYBILLS = load_data_from_csv(WAYBILLS_CSV, {}, key_column='waybill_ref')
+SHIPMENTS = load_data_from_csv(SHIPMENTS_CSV, {})
+WAYBILLS = load_data_from_csv(WAYBILLS_CSV, {})
 
 # Initialize default admin if not exists
 if 'admin' not in USERS:
@@ -576,129 +521,40 @@ if menu == "Track Shipment (Waybill)":
 
         if shipment:
             st.success("Shipment Found!")
-            st.write(f"**Status:** {shipment['status']}")
-            st.write(f"**Origin:** {shipment['origin']} → **Destination:** {shipment['destination']}")
-            st.write(f"**Goods:** {shipment['goods']}")
-            st.write(f"**ETA:** {shipment['eta']}")
+            st.write(f"**Status:** {waybill['status']}")
+            st.write(f"**Origin:** {waybill['details']['origin']}  \n**Destination:** {waybill['details']['destination']}")
+            st.write(f"**Goods:** {waybill['details']['goods_type']} ({waybill['details']['qty']} MT)")
 
-            # Get tracking history from WAYBILLS
-            waybill = WAYBILLS.get(ref)
-            if waybill:
-                st.write("### Tracking History")
-                tracking = waybill.get('tracking', [])
-                if isinstance(tracking, str):
-                    try:
-                        tracking = json.loads(tracking)
-                    except:
-                        tracking = []
-
-                if not tracking:
-                    st.write("No tracking information available.")
-                else:
-                    for t in tracking:
-                        # Handle time display - convert string to datetime if needed
-                        time = t.get('time', 'Unknown')
-                        status = t.get('status', 'Unknown')
-
-                        if isinstance(time, str):
-                            try:
-                                time = datetime.datetime.fromisoformat(time)
-                            except:
-                                # If parsing fails, just use the string
-                                pass
-                        st.write(f"- {time} — {status}")
-
-# 4. Track Shipment
-# 4. Track Shipment
-if menu == "Track Shipment (Waybill)":
-    st.header("Track Shipment by Waybill Reference")
-
-    # Display a few sample waybill references to help users
-    if WAYBILLS:
-        sample_refs = list(WAYBILLS.keys())[:3]  # Get up to 3 sample references
-        st.info(f"Sample waybill references for testing: {', '.join(sample_refs)}")
-
-    ref = st.text_input("Enter Waybill Reference")
-    if st.button("Track Now"):
-        # First, try to find the waybill directly from WAYBILLS dictionary
-        waybill = WAYBILLS.get(ref)
-
-        # If not found in WAYBILLS, try to find it using the find_shipment function
-        if not waybill:
-            shipment_info = find_shipment(ref)
-            if shipment_info:
-                st.success("Shipment Found!")
-                st.write(f"**Status:** {shipment_info['status']}")
-                st.write(f"**Origin:** {shipment_info['origin']} → **Destination:** {shipment_info['destination']}")
-                st.write(f"**Goods:** {shipment_info['goods']}")
-                st.write(f"**ETA:** {shipment_info['eta']}")
-
-                st.warning("Tracking history and delivery simulation not available for this shipment.")
-            else:
-                st.error("Waybill not found!")
-        else:
-            # We found the waybill in WAYBILLS dictionary
-            st.success("Shipment Found!")
-
-            # Extract details from waybill
-            details = waybill.get('details', {})
-            if isinstance(details, str):
+            # Handle ETA display - convert string to datetime if needed
+            eta = waybill['eta']
+            if isinstance(eta, str):
                 try:
-                    details = ast.literal_eval(details)
+                    eta = datetime.datetime.fromisoformat(eta)
                 except:
-                    details = {}
-
-            # Display shipment information
-            st.write(f"**Status:** {waybill.get('status', 'Unknown')}")
-
-            origin = details.get('origin', 'Unknown')
-            destination = details.get('destination', 'Unknown')
-            st.write(f"**Origin:** {origin} → **Destination:** {destination}")
-
-            goods_type = details.get('goods_type', 'Unknown')
-            qty = details.get('qty', 'Unknown')
-            st.write(f"**Goods:** {goods_type} ({qty} MT)")
-
-            eta = waybill.get('eta', 'Unknown')
+                    # If parsing fails, just use the string
+                    pass
             st.write(f"**ETA:** {eta}")
 
-            # Display tracking history
             st.write("### Tracking History")
-            tracking = waybill.get('tracking', [])
-            if isinstance(tracking, str):
-                try:
-                    tracking = json.loads(tracking)
-                except:
-                    tracking = []
+            for t in waybill['tracking']:
+                # Handle time display - convert string to datetime if needed
+                time = t['time']
+                if isinstance(time, str):
+                    try:
+                        time = datetime.datetime.fromisoformat(time)
+                    except:
+                        # If parsing fails, just use the string
+                        pass
+                st.write(f"- {time} — {t['status']}")
 
-            if not tracking:
-                st.write("No tracking information available.")
-            else:
-                for t in tracking:
-                    time = t.get('time', 'Unknown')
-                    status = t.get('status', 'Unknown')
-
-                    if isinstance(time, str):
-                        try:
-                            time = datetime.datetime.fromisoformat(time)
-                        except:
-                            pass
-                    st.write(f"- {time} — {status}")
-
-            # Simulate delivery button
-            if waybill.get('status') != "Delivered" and st.button("Simulate Delivery"):
+            # Update shipment status if not delivered
+            if waybill['status'] != "Delivered" and st.button("Simulate Delivery"):
                 waybill['status'] = "Delivered"
                 delivery_time = datetime.datetime.now()
-
-                # Ensure tracking is a list
-                if not isinstance(waybill.get('tracking'), list):
-                    waybill['tracking'] = []
-
                 waybill['tracking'].append({"status": "Delivered", "time": delivery_time})
 
-                # Update the corresponding shipment in SHIPMENTS if possible
-                username = waybill.get('username')
-                if username and ref in SHIPMENTS:
+                # Also update the corresponding shipment
+                if ref in SHIPMENTS:
                     SHIPMENTS[ref]['status'] = "Delivered"
 
                 # Save changes to CSV files
@@ -707,8 +563,5 @@ if menu == "Track Shipment (Waybill)":
 
                 st.success("Delivery status updated and saved!")
                 st.balloons()
-
-                # Force refresh to show updated status
-                st.rerun()
-    else:
+        else:
             st.error("Waybill not found!")
