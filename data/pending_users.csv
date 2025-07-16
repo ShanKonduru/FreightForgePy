@@ -1,0 +1,2 @@
+username,business_name,contact_person,email,mobile,pan_gst,approved,business_type,address,password,doc
+Customer1,Grain Traders Inc.,John Smith,john@graintraders.com,555-1234,GRAIN123456,no,Agriculture,"123 Farm Road, Rural County",Customer1,"b""b'customer1_document'"""
