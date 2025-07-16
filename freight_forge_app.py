@@ -4,6 +4,9 @@ import string
 import datetime
 import pandas as pd
 import os
+import csv
+import ast  # For safely evaluating the string representation of a dictionary
+import json
 
 # File paths for CSV storage
 USERS_CSV = "data\\users.csv"
@@ -491,18 +494,72 @@ def find_shipment(waybill_ref):
             reader = csv.DictReader(file)
             for row in reader:
                 if row['waybill_ref'] == waybill_ref:
-                    # Parse the details string into a dictionary
-                    details = ast.literal_eval(row['details'])
+                    # Debug: Print the raw details string
+                    st.write("Raw details string:", row['details'])
+
+                    # Try to parse the details string into a dictionary
+                    details = {}
+                    try:
+                        # First try ast.literal_eval
+                        details = ast.literal_eval(row['details'])
+                    except (SyntaxError, ValueError) as e:
+                        st.warning(f"Could not parse details with ast: {e}")
+                        try:
+                            # Fall back to json.loads
+                            details = json.loads(row['details'])
+                        except json.JSONDecodeError as e:
+                            st.error(f"Could not parse details with json: {e}")
+                            # As a last resort, try to extract key information using string manipulation
+                            details_str = row['details']
+                            # Extract origin and destination using simple string parsing
+                            origin = "Unknown"
+                            destination = "Unknown"
+                            goods_type = "Unknown"
+                            qty = "Unknown"
+
+                            # Simple extraction from string (very basic)
+                            if "'origin':" in details_str:
+                                origin = details_str.split("'origin':")[1].split(",")[0].strip().strip("'\"")
+                            if "'destination':" in details_str:
+                                destination = details_str.split("'destination':")[1].split(",")[0].strip().strip("'\"")
+                            if "'goods_type':" in details_str:
+                                goods_type = details_str.split("'goods_type':")[1].split(",")[0].strip().strip("'\"")
+                            if "'qty':" in details_str:
+                                qty = details_str.split("'qty':")[1].split(",")[0].strip().strip("'\"")
+
+                            details = {
+                                'origin': origin,
+                                'destination': destination,
+                                'goods_type': goods_type,
+                                'qty': qty
+                            }
+
+                    # Parse tracking data if available
+                    tracking = []
+                    if 'tracking' in row:
+                        try:
+                            tracking = ast.literal_eval(row['tracking'])
+                        except:
+                            try:
+                                tracking = json.loads(row['tracking'])
+                            except:
+                                tracking = []
 
                     return {
-                        'status': row['status'],
-                        'origin': details['origin'],
-                        'destination': details['destination'],
-                        'goods': f"{details['goods_type']} ({details['qty']} MT)",
-                        'eta': row['eta']
+                        'waybill_ref': row['waybill_ref'],
+                        'status': row.get('status', 'Unknown'),
+                        'details': details,
+                        'tracking': tracking,
+                        'eta': row.get('eta', 'Unknown'),
+                        'origin': details.get('origin', 'Unknown'),
+                        'destination': details.get('destination', 'Unknown'),
+                        'goods_type': details.get('goods_type', 'Unknown'),
+                        'qty': details.get('qty', 'Unknown')
                     }
     except Exception as e:
         st.error(f"Error finding shipment: {e}")
+        import traceback
+        st.error(traceback.format_exc())
     return None
 
 # 4. Track Shipment
@@ -511,19 +568,31 @@ if menu == "Track Shipment (Waybill)":
 
     # Display a few sample waybill references to help users
     if WAYBILLS:
-        sample_refs = list(WAYBILLS.keys())[:3]  # Get up to 3 sample references
-        st.info(f"Sample waybill references for testing: {', '.join(sample_refs)}")
+        # Get actual waybill references from the dictionary values
+        sample_refs = []
+        count = 0
+        for key, waybill in WAYBILLS.items():
+            if 'waybill_ref' in waybill:
+                sample_refs.append(waybill['waybill_ref'])
+                count += 1
+                if count >= 4:  # Limit to 3 samples
+                    break
 
+        if sample_refs:
+            st.info(f"Sample waybill references for testing: {', '.join(sample_refs)}")
+        else:
+            st.info("No sample waybill references available.")
+        
     ref = st.text_input("Enter Waybill Reference")
     if st.button("Track Now"):
-        # Use the new find_shipment function to get shipment details
-        shipment = find_shipment(ref)
+        # Use the find_shipment function to get shipment details
+        waybill = find_shipment(ref)
 
-        if shipment:
+        if waybill:
             st.success("Shipment Found!")
             st.write(f"**Status:** {waybill['status']}")
-            st.write(f"**Origin:** {waybill['details']['origin']}  \n**Destination:** {waybill['details']['destination']}")
-            st.write(f"**Goods:** {waybill['details']['goods_type']} ({waybill['details']['qty']} MT)")
+            st.write(f"**Origin:** {waybill['origin']}  \n**Destination:** {waybill['destination']}")
+            st.write(f"**Goods:** {waybill['goods_type']} ({waybill['qty']} MT)")
 
             # Handle ETA display - convert string to datetime if needed
             eta = waybill['eta']
@@ -536,32 +605,51 @@ if menu == "Track Shipment (Waybill)":
             st.write(f"**ETA:** {eta}")
 
             st.write("### Tracking History")
-            for t in waybill['tracking']:
-                # Handle time display - convert string to datetime if needed
-                time = t['time']
-                if isinstance(time, str):
-                    try:
-                        time = datetime.datetime.fromisoformat(time)
-                    except:
-                        # If parsing fails, just use the string
-                        pass
-                st.write(f"- {time} — {t['status']}")
+            tracking = waybill.get('tracking', [])
+            if not tracking:
+                st.write("No tracking information available.")
+            else:
+                for t in tracking:
+                    # Handle time display - convert string to datetime if needed
+                    time = t.get('time', 'Unknown')
+                    status = t.get('status', 'Unknown')
+
+                    if isinstance(time, str):
+                        try:
+                            time = datetime.datetime.fromisoformat(time)
+                        except:
+                            # If parsing fails, just use the string
+                            pass
+                    st.write(f"- {time} — {status}")
 
             # Update shipment status if not delivered
             if waybill['status'] != "Delivered" and st.button("Simulate Delivery"):
-                waybill['status'] = "Delivered"
-                delivery_time = datetime.datetime.now()
-                waybill['tracking'].append({"status": "Delivered", "time": delivery_time})
+                # Get the original waybill from WAYBILLS dictionary
+                original_waybill = WAYBILLS.get(ref)
+                if original_waybill:
+                    original_waybill['status'] = "Delivered"
+                    delivery_time = datetime.datetime.now()
 
-                # Also update the corresponding shipment
-                if ref in SHIPMENTS:
-                    SHIPMENTS[ref]['status'] = "Delivered"
+                    # Ensure tracking is a list
+                    if not isinstance(original_waybill.get('tracking'), list):
+                        original_waybill['tracking'] = []
 
-                # Save changes to CSV files
-                save_data_to_csv(WAYBILLS, WAYBILLS_CSV)
-                save_data_to_csv(SHIPMENTS, SHIPMENTS_CSV)
+                    original_waybill['tracking'].append({"status": "Delivered", "time": delivery_time})
 
-                st.success("Delivery status updated and saved!")
-                st.balloons()
+                    # Also update the corresponding shipment
+                    if ref in SHIPMENTS:
+                        SHIPMENTS[ref]['status'] = "Delivered"
+
+                    # Save changes to CSV files
+                    save_data_to_csv(WAYBILLS, WAYBILLS_CSV)
+                    save_data_to_csv(SHIPMENTS, SHIPMENTS_CSV)
+
+                    st.success("Delivery status updated and saved!")
+                    st.balloons()
+
+                    # Force refresh to show updated status
+                    st.rerun()
+                else:
+                    st.error("Could not update waybill in database.")
         else:
             st.error("Waybill not found!")
